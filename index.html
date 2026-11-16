@@ -3060,7 +3060,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
 <div class="ms-measure" hidden>
  <div class="ms-kindrow"><span class="ms-kindlab">Roof type</span><div class="ms-kind" role="group" aria-label="Roof type"><button type="button" data-kind="pitched" aria-pressed="true"><svg class="ms-ic" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12 12 4l9 8"/><path d="M5 10.5V20h14v-9.5"/></svg>Pitched</button><button type="button" data-kind="flat" aria-pressed="false"><svg class="ms-ic" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8h18"/><path d="M5 8v12h14V8"/><path d="M9 20v-5h6v5"/></svg>Flat</button></div><span class="ms-kindhint">New sections are drawn as Pitched. Select a section in Edit points to switch it.</span></div>
 <div class="ms-kindrow"><span class="ms-kindlab">Material</span><div class="ms-kind ms-mat" role="group" aria-label="Material"></div></div>
-<div class="ms-ginfo" hidden><div class="ms-gtxt"></div><button type="button" class="ms-tbtn ms-guse" aria-pressed="false">Use Google roof area</button></div>
+<div class="ms-ginfo" hidden><div class="ms-gtxt"></div><button type="button" class="ms-tbtn ms-guse" aria-pressed="false">Use Google slopes</button></div>
 <div class="ms-tools"><div class="ms-seg" role="group" aria-label="Tool"><button type="button" data-tool="pencil" aria-pressed="true"><svg viewBox="0 0 256 256" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M227.31,73.37,182.63,28.68a16,16,0,0,0-22.63,0L36.69,152A15.86,15.86,0,0,0,32,163.31V208a16,16,0,0,0,16,16H92.69A15.86,15.86,0,0,0,104,219.31L227.31,96a16,16,0,0,0,0-22.63ZM92.69,208H48V163.31l88-88L180.69,120ZM192,108.68,147.31,64l24-24L216,84.68Z"/></svg>Pencil</button><button type="button" data-tool="edit" aria-pressed="false">Edit points</button><button type="button" data-tool="rake" aria-pressed="false">Mark rakes</button></div><div class="ms-seg ms-seg2" role="group" aria-label="Add items"><button type="button" data-tool="boot" aria-pressed="false"><i class="mk boot"></i>Pipe boot</button><button type="button" data-tool="vent" aria-pressed="false"><i class="mk vent"></i>Box vent</button><button type="button" data-tool="sky" aria-pressed="false"><i class="mk sky"></i>Skylight</button><button type="button" data-tool="chim" aria-pressed="false"><i class="mk chim"></i>Chimney</button></div>
 <div class="ms-tool-btns"><button type="button" class="ms-tbtn ms-snapbtn" aria-pressed="false" title="Snap to square angles and edges. Hold Shift to flip it for one point.">Snap off</button><button type="button" class="ms-tbtn ms-undo">Undo point</button><button type="button" class="ms-tbtn ms-del" disabled>Delete selected</button><button type="button" class="ms-tbtn ms-clear">Clear</button><button type="button" class="ms-tbtn ms-auto">Auto-detect again</button></div></div>
 <p class="ms-tool-tip">Click and drag to move the map. Pencil: click each roof corner, at any angle. Turn Snap on (or hold Shift) to lock to square angles and edges. Click the first point to close a section. Add more sections for garages or additions. Every outside edge counts as an eave; use Mark rakes to click gable edges that get no gutter.</p>
@@ -3518,8 +3518,8 @@ function googleRoof(c){ G=null; useG=false; ginfo.hidden=false; root.querySelect
       // starting outline: the building's box from Google; the rep adjusts it to the real roof edge
       var bb=d.boundingBox; traceRoof(d.center||{latitude:c.lat,longitude:c.lng}, bb);
       var dt=G.date?(G.date.month+'/'+G.date.year):'';
-      root.querySelector('.ms-gtxt').innerHTML='<b>Google roof data:</b> '+(G.sqft/100).toFixed(2)+' sq of roof across '+G.planes+' planes · mostly '+main+'/12'+(dt?' · imagery '+dt:'')+(G.quality?' ('+G.quality.toLowerCase()+' quality)':'');
-      useG=true; guse.hidden=false; guse.setAttribute('aria-pressed','true'); guse.textContent='Using Google roof area';
+      root.querySelector('.ms-gtxt').innerHTML='<b>Google roof data:</b> '+G.planes+' planes · mostly '+main+'/12 · slopes add '+Math.round((G.sqft/G.groundSqft-1)*100)+'% over the flat footprint'+(dt?' · imagery '+dt:'')+(G.quality?' ('+G.quality.toLowerCase()+' quality)':'')+'. Squares come from your outline × Google’s slopes; flat sections are counted flat.';
+      useG=true; guse.hidden=false; guse.setAttribute('aria-pressed','true'); guse.textContent='Using Google slopes';
       calc(); })
    .catch(function(err){ G=null; guse.hidden=true;
       root.querySelector('.ms-gtxt').textContent=err.message==='no-data'?'Google has no roof data for this address. Trace the roof with the pencil.':(err.message+'. Check that Solar API is enabled for this key. Trace the roof with the pencil.');
@@ -3591,7 +3591,7 @@ function traceRoof(center,bb){ var note=root.querySelector('.ms-note2'); note.te
   .catch(function(err){ var msg=String(err&&err.message||err);
      if(bb){ addPoly([L.latLng(bb.ne.latitude,bb.sw.longitude),L.latLng(bb.sw.latitude,bb.sw.longitude),L.latLng(bb.sw.latitude,bb.ne.longitude),L.latLng(bb.ne.latitude,bb.ne.longitude)]); map.fitBounds(polys[polys.length-1].layer.getBounds(),{padding:[60,60],animate:false}); calc(); }
      note.textContent=(msg==='reader'?'Could not load the outline reader (check the internet connection).':msg==='no-roof'?'Google could not find a clear roof outline here.':'Google outline unavailable ('+msg+').')+' A box was drawn around the building instead. Trace the roof with the pencil, or adjust the box with Edit points. Squares and pitch still come from Google.'; });}
-guse.addEventListener('click',function(){useG=!useG; guse.setAttribute('aria-pressed',useG?'true':'false'); guse.textContent=useG?'Using Google roof area':'Use Google roof area'; calc();});
+guse.addEventListener('click',function(){useG=!useG; guse.setAttribute('aria-pressed',useG?'true':'false'); guse.textContent=useG?'Using Google slopes':'Use Google slopes'; calc();});
 // ---------- snapping (done in screen pixels) ----------
 function P(ll){return map.latLngToContainerPoint(ll);} function LL(pt){return map.containerPointToLatLng(pt);}
 function allVerts(skip){var v=[]; polys.forEach(function(p,pi){p.pts.forEach(function(ll,vi){ if(!(skip&&skip.pi===pi&&skip.vi===vi)) v.push(ll);});}); return v;}
@@ -3714,6 +3714,7 @@ function imgInfo(){ if(typeof map==='undefined'||!map) return;
   var z=Math.round(map.getZoom()), t;
   if(demoImg) t='Demo image';
   else if(hd.ov) t='Google HD aerial (sharpest) inside the box · Google satellite outside';
+  else if(hd.msg) t=hd.msg;
   else if(GKEY&&gTiles&&map.hasLayer(gTiles.sat)){ var n=gTiles.sat.options.maxNativeZoom; t='Google imagery · detail '+Math.min(z,n)+' of '+n+(z<n?' · zoom in for more':' · sharpest'); }
   else if(GKEY&&gTiles&&map.hasLayer(gTiles.map)) t='Google map';
   else if(GKEY) t='Loading Google imagery…';
@@ -3734,7 +3735,7 @@ var pitchSel=root.querySelector('#ms-pitch'), wasteIn=root.querySelector('#ms-wa
 var wErr=document.createElement('p'); wErr.className='ms-werr'; wErr.hidden=true; wasteIn.parentElement.after(wErr);
 function wasteVal(){var w=parseFloat(wasteIn.value); return isNaN(w)?WASTE_MIN:Math.min(WASTE_MAX,Math.max(WASTE_MIN,w));}
 function n0(x){return Math.round(x).toLocaleString('en-US')}
-function calc(){var footP=polys.reduce(function(t,p){return t+(p.kind==='flat'?0:areaFt(p.pts))},0), footF=polys.reduce(function(t,p){return t+(p.kind==='flat'?areaFt(p.pts):0)},0), foot=footP+footF, r=+pitchSel.value, fac=Math.sqrt(1+Math.pow(r/12,2)), area=footP*fac+footF, sqP=(useG&&G)?G.sqft/100:footP*fac/100, sqF=footF/100, sq=sqP+sqF, w=wasteVal(); var wr=parseFloat(wasteIn.value), lo=wasteIn.value.trim()!==''&&!isNaN(wr)&&wr<WASTE_MIN, hi=!isNaN(wr)&&wr>WASTE_MAX; wErr.hidden=!(lo||hi); wErr.textContent=hi?'Waste can\'t go above '+WASTE_MAX+'%. Using '+WASTE_MAX+'%.':'Waste can\'t go below '+WASTE_MIN+'%. Using '+WASTE_MIN+'%.'; wasteIn.classList.toggle('is-error',!wErr.hidden);
+function calc(){var footP=polys.reduce(function(t,p){return t+(p.kind==='flat'?0:areaFt(p.pts))},0), footF=polys.reduce(function(t,p){return t+(p.kind==='flat'?areaFt(p.pts):0)},0), foot=footP+footF, r=+pitchSel.value, fac=(useG&&G&&G.groundSqft>0)?Math.min(1.8,Math.max(1,G.sqft/G.groundSqft)):Math.sqrt(1+Math.pow(r/12,2)), area=footP*fac+footF, sqP=footP*fac/100, sqF=footF/100, sq=sqP+sqF, w=wasteVal(); var wr=parseFloat(wasteIn.value), lo=wasteIn.value.trim()!==''&&!isNaN(wr)&&wr<WASTE_MIN, hi=!isNaN(wr)&&wr>WASTE_MAX; wErr.hidden=!(lo||hi); wErr.textContent=hi?'Waste can\'t go above '+WASTE_MAX+'%. Using '+WASTE_MAX+'%.':'Waste can\'t go below '+WASTE_MIN+'%. Using '+WASTE_MIN+'%.'; wasteIn.classList.toggle('is-error',!wErr.hidden);
   R={foot:foot,fac:fac,area:area,sq:sq,sqP:sqP,sqF:sqF,w:w,tot:sq*(1+w/100),totP:sqP*(1+w/100),totF:sqF*(1+w/100),pitch:r,sections:polys.length};
  var bym={}; polys.forEach(function(p){var a=areaFt(p.pts)*(p.kind==='flat'?1:fac)/100, key=p.mat+(p.kind==='flat'?' (flat)':''); bym[key]=(bym[key]||0)+a;}); R.byMaterial=bym;
   var keys=Object.keys(bym); root.querySelector('.r-sq').textContent=keys.length>1?keys.map(function(k){return k+' '+bym[k].toFixed(2)}).join(' · '):(keys.length?keys[0]+' · ':'')+sq.toFixed(2);
@@ -3788,14 +3789,17 @@ var DEMO_IMG='data:image/webp;base64,UklGRqAAAQBXRUJQVlA4IJQAAQAQiQedASroA5gDPoU
 var CES='https://cdn.jsdelivr.net/npm/cesium@1.121.0/Build/Cesium/', cesLoad=null, hd={w:null,ts:null,el:null,ov:null,ctl:null,busy:0,key:''};  window.__hd=hd;
 function loadCesium(){ if(window.Cesium) return Promise.resolve(window.Cesium); if(cesLoad) return cesLoad; window.CESIUM_BASE_URL=CES;
   cesLoad=new Promise(function(ok,no){var s=document.createElement('script'); s.src=CES+'Cesium.js'; s.onload=function(){window.Cesium?ok(window.Cesium):no(new Error('viewer'));}; s.onerror=function(){cesLoad=null; no(new Error('viewer'));}; document.head.appendChild(s);}); return cesLoad;}
-function hdSetup(C){ if(hd.w&&hd.key===GKEY) return Promise.resolve();
+function hdSetup(C){ if(hd.w&&hd.key===GKEY&&hd.ts) return Promise.resolve();
   if(hd.w){ try{hd.w.destroy();}catch(e){} hd.el.remove(); hd.w=null; hd.ts=null; }
   hd.el=document.createElement('div'); hd.el.style.cssText='position:fixed;left:0;top:0;width:1600px;height:1200px;opacity:0;pointer-events:none;z-index:-1;overflow:hidden'; hd.el.setAttribute('aria-hidden','true'); document.body.appendChild(hd.el);
   hd.w=new C.CesiumWidget(hd.el,{globe:false,skyBox:false,skyAtmosphere:false,useBrowserRecommendedResolution:false,contextOptions:{webgl:{preserveDrawingBuffer:true,alpha:false}}});
   hd.w.canvas.style.cssText='width:100%;height:100%;display:block'; hd.w.resize(); hd.w.scene.screenSpaceCameraController.enableInputs=false;
   hd.w.scene.backgroundColor=C.Color.fromCssColorString('#e8e6df'); hd.key=GKEY;
-  return C.Cesium3DTileset.fromUrl('https://tile.googleapis.com/v1/3dtiles/root.json?key='+encodeURIComponent(GKEY),{maximumScreenSpaceError:2,showCreditsOnScreen:true})
-    .then(function(ts){ hd.ts=ts; hd.w.scene.primitives.add(ts); }); }
+  var rootUrl='https://tile.googleapis.com/v1/3dtiles/root.json?key='+encodeURIComponent(GKEY);
+  return C.Cesium3DTileset.fromUrl(rootUrl,{maximumScreenSpaceError:2,showCreditsOnScreen:true})
+    .then(function(ts){ hd.ts=ts; hd.lastFail=''; ts.tileFailed.addEventListener(function(e){ hd.lastFail=String(e&&e.message||'tile failed'); }); hd.w.scene.primitives.add(ts); })
+    .catch(function(e){ // ask Google directly so the message says why
+      return fetch(rootUrl).then(function(r){ return r.json().catch(function(){return {};}).then(function(j){ throw new Error(r.ok?String(e&&e.message||e):gReason(j)+' (status '+r.status+')'); }); }); }); }
 function hdShot(lat,lng,wM){ return loadCesium().then(function(C){ return hdSetup(C).then(function(){
   var sc=hd.w.scene, cam=sc.camera, cv=hd.w.canvas, asp=cv.width/cv.height||4/3;
   hd.w.resize(); asp=cv.width/cv.height||4/3;
@@ -3803,15 +3807,16 @@ function hdShot(lat,lng,wM){ return loadCesium().then(function(C){ return hdSetu
   var f=new C.OrthographicFrustum(); f.width=wM; f.aspectRatio=asp; f.near=1; f.far=30000; cam.frustum=f; // set after setView, which would resize it
   return new Promise(function(ok,no){ var t0=Date.now(), calm=0;
     (function wait(){ if(hd.ts.tilesLoaded&&Date.now()-t0>1200) calm++; else calm=0;
-      if(calm>=3||Date.now()-t0>30000){ hd.w.render(); var url; try{url=cv.toDataURL('image/jpeg',0.92);}catch(e){return no(new Error('snapshot'));}
+      if(!hd.ts.tilesLoaded&&Date.now()-t0>30000) return no(new Error(hd.lastFail?('Google 3D tiles failed: '+hd.lastFail):'timed out waiting for Google 3D tiles'));
+      if(calm>=3){ hd.w.render(); var url; try{url=cv.toDataURL('image/jpeg',0.92);}catch(e){return no(new Error('snapshot'));}
         var hM=wM/asp, c=L.latLng(lat,lng), M=3.28084; ok({url:url,bounds:L.latLngBounds(ftToLL(c,-wM/2*M,-hM/2*M),ftToLL(c,wM/2*M,hM/2*M)),partial:calm<3}); return; }
       setTimeout(wait,250); })(); }); }); }); }
-function hdClear(){ if(hd.ov&&map){map.removeLayer(hd.ov);} hd.ov=null; imgInfo(); }
-function hdArea(c,wM){ if(!GKEY||!map||(choice&&choice.demo)) return; var my=++hd.busy; hdButton(); imgInfoText('Loading Google HD aerial…');
+function hdClear(){ if(hd.ov&&map){map.removeLayer(hd.ov);} hd.ov=null; hd.msg=''; imgInfo(); }
+function hdArea(c,wM){ if(!GKEY||!map||(choice&&choice.demo)) return; var my=++hd.busy; hd.msg='Loading Google HD aerial…'; hdButton(); imgInfo();
   if(!map.getPane('hdPane')){ map.createPane('hdPane').style.zIndex=250; map.getPane('hdPane').style.pointerEvents='none'; }
   hdShot(c.lat,c.lng,wM).then(function(r){ if(my!==hd.busy) return; if(hd.ov) map.removeLayer(hd.ov);
-      hd.ov=L.imageOverlay(r.url,r.bounds,{pane:'hdPane',interactive:false,attribution:'HD aerial &copy; Google'}).addTo(map); hd.busy=0; hdButton(); imgInfo(); })
-   .catch(function(e){ if(my!==hd.busy) return; hd.busy=0; hdButton(); imgInfo(); imgInfoText('HD aerial unavailable here ('+(e&&e.message||e)+') · using Google satellite'); }); }
+      hd.ov=L.imageOverlay(r.url,r.bounds,{pane:'hdPane',interactive:false,attribution:'HD aerial &copy; Google'}).addTo(map); hd.busy=0; hd.msg=''; hdButton(); imgInfo(); })
+   .catch(function(e){ if(my!==hd.busy) return; hd.busy=0; hdButton(); imgInfo(); hd.msg='HD aerial unavailable ('+String(e&&e.message||e).slice(0,240)+') · using Google satellite'; imgInfo(); if(window.console) console.warn('HD aerial',e); }); }
 function hdButton(){ if(!map) return;
   if(!hd.ctl){ hd.ctl=L.control({position:'bottomright'}); hd.ctl.onAdd=function(){var b=L.DomUtil.create('button','ms-hdbtn'); b.type='button'; L.DomEvent.disableClickPropagation(b);
       b.addEventListener('click',function(){ var bb=map.getBounds(), w=map.distance(L.latLng(map.getCenter().lat,bb.getWest()),L.latLng(map.getCenter().lat,bb.getEast())); hdArea(map.getCenter(),Math.max(40,Math.min(160,w))); }); return b;}; hd.ctl.addTo(map); }
