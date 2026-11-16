@@ -3434,7 +3434,7 @@ function pick(i){var f=items[i]; if(!f) return; if(typeof hdClear==='function') 
   inp.value=L.full; close(); addrEl.textContent=L.full; picked.hidden=false;
   show(choice.exact?'':'That match has no house number, so the pin may land on the street. You can move it on the next screen.');
   root.querySelector('.ms-confirm-addr').focus();}
-function confirmAddr(){if(!choice) return; stepA.hidden=true; stepM.hidden=false; if(map){stopDraw(); setMode('pin');} else stepM.dataset.mode='pin'; root.querySelector('.ms-addr2').textContent=choice.address; root.querySelector('.ms-done').hidden=true; openMap(); }
+function confirmAddr(){if(!choice) return; stepA.hidden=true; stepM.hidden=false; if(map){stopDraw(); setMode('pin');} else stepM.dataset.mode='pin'; root.querySelector('.ms-addr2').textContent=choice.address; root.querySelector('.ms-done').hidden=true; openMap(); if(GKEY&&!choice.demo){ var cc=L.latLng(choice.lat,choice.lng); setTimeout(function(){ if(map) hdArea(cc,120); },400); } }
 root.querySelector('.ms-confirm-addr').addEventListener('click',confirmAddr);
 root.querySelector('.ms-change').addEventListener('click',function(){stepM.hidden=true; stepA.hidden=false; inp.focus(); inp.select();});
 var PIN='<svg class="ms-pin" width="34" height="46" viewBox="0 0 34 46"><path d="M17 1C8.2 1 1 8 1 16.6 1 28.4 17 45 17 45s16-16.6 16-28.4C33 8 25.8 1 17 1z" fill="#E5322D" stroke="#fff" stroke-width="2"/><circle cx="17" cy="16.5" r="6" fill="#fff"/></svg>';
