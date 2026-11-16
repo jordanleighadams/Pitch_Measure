@@ -3516,7 +3516,7 @@ function googleRoof(c){ G=null; useG=false; ginfo.hidden=false; root.querySelect
       G={sqft:sloped*10.7639, groundSqft:ground*10.7639, planes:segs.length, pitch:main, quality:d.imageryQuality, date:d.imageryDate};
       pitchSel.value=String(main);
       // starting outline: the building's box from Google; the rep adjusts it to the real roof edge
-      var bb=d.boundingBox; traceRoof(d.center||{latitude:c.lat,longitude:c.lng}, bb);
+      var bb=d.boundingBox; traceRoof(d.center||{latitude:c.lat,longitude:c.lng}, bb, (d.solarPotential&&d.solarPotential.roofSegmentStats)||[]);
       var dt=G.date?(G.date.month+'/'+G.date.year):'';
       root.querySelector('.ms-gtxt').innerHTML='<b>Google roof data:</b> '+G.planes+' planes · mostly '+main+'/12 · slopes add '+Math.round((G.sqft/G.groundSqft-1)*100)+'% over the flat footprint'+(dt?' · imagery '+dt:'')+(G.quality?' ('+G.quality.toLowerCase()+' quality)':'')+'. Squares come from your outline × Google’s slopes; flat sections are counted flat.';
       useG=true; guse.hidden=false; guse.setAttribute('aria-pressed','true'); guse.textContent='Using Google slopes';
@@ -3564,40 +3564,96 @@ function dp(pts,eps){ if(pts.length<3) return pts; var a=pts[0],b=pts[pts.length
 function simplifyLoop(loop,eps){ var n=loop.length,far=0,fd=0; for(var i=1;i<n;i++){var d=Math.hypot(loop[i][0]-loop[0][0],loop[i][1]-loop[0][1]); if(d>fd){fd=d;far=i;}}
   var A=dp(loop.slice(0,far+1),eps), B=dp(loop.slice(far).concat([loop[0]]),eps); return A.slice(0,-1).concat(B.slice(0,-1));}
 window.__msPolys=function(){return polys.map(function(p){return p.pts.map(function(l){return [l.lat,l.lng];});});};
-function traceRoof(center,bb){ var note=root.querySelector('.ms-note2'); note.textContent='Tracing the roof outline from Google…';
+// ----- outline helpers: height filter + squaring -----
+function boxMean(src,w,h,r){ // mean over (2r+1)^2 window via integral image
+  var I=new Float64Array((w+1)*(h+1)),x,y; for(y=0;y<h;y++){var s=0; for(x=0;x<w;x++){s+=src[y*w+x]; I[(y+1)*(w+1)+x+1]=I[y*(w+1)+x+1]+s;}}
+  var o=new Float32Array(w*h); for(y=0;y<h;y++)for(x=0;x<w;x++){var x0=Math.max(0,x-r),x1=Math.min(w,x+r+1),y0=Math.max(0,y-r),y1=Math.min(h,y+r+1);
+    o[y*w+x]=(I[y1*(w+1)+x1]-I[y0*(w+1)+x1]-I[y1*(w+1)+x0]+I[y0*(w+1)+x0])/((x1-x0)*(y1-y0));} return o;}
+function heightFilter(m,dsm,w,h,px){ // keep roof pixels that stand >1.8 m above nearby ground and are smooth (not tree canopy)
+  var ok=function(v){return isFinite(v)&&v>-1000;}, B=Math.max(4,Math.round(2/px)), bw=Math.ceil(w/B), bh=Math.ceil(h/B), bmin=new Float32Array(bw*bh).fill(NaN), all=[], x,y,i;
+  for(y=0;y<h;y++)for(x=0;x<w;x++){i=y*w+x; var v=dsm[i]; if(!ok(v)||m[i]) continue; var k=((y/B)|0)*bw+((x/B)|0); if(!(bmin[k]<=v)) bmin[k]=v; if(((x+y)&7)===0) all.push(v);}
+  if(all.length<50) return {m:m,dropped:0};
+  all.sort(function(a,b){return a-b}); var g0=all[(all.length*0.1)|0], R=Math.max(2,Math.round(16/(B*px))), gnd=new Float32Array(bw*bh);
+  for(var by=0;by<bh;by++)for(var bx=0;bx<bw;bx++){var lo=Infinity; for(var yy=Math.max(0,by-R);yy<=Math.min(bh-1,by+R);yy++)for(var xx=Math.max(0,bx-R);xx<=Math.min(bw-1,bx+R);xx++){var q=bmin[yy*bw+xx]; if(q<lo) lo=q;} gnd[by*bw+bx]=isFinite(lo)?lo:g0;}
+  var k3=Math.max(1,Math.round(0.3/px)), rough=new Float32Array(w*h);
+  for(y=k3;y<h-k3;y++)for(x=k3;x<w-k3;x++){i=y*w+x; if(!m[i]) continue; var c=dsm[i],a1=dsm[i-k3],a2=dsm[i+k3],b1=dsm[i-k3*w],b2=dsm[i+k3*w];
+    if(ok(c)){ var rv=0; // per axis: smooth plane -> ~0; one-sided drop (wall to patio/ground) -> ignored; spikes both ways (canopy) -> rough
+      [[a1,a2,m[i-k3]&&m[i+k3]],[b1,b2,m[i-k3*w]&&m[i+k3*w]]].forEach(function(t){ if(!t[2]||!ok(t[0])||!ok(t[1])) return; var d1=Math.abs(t[0]-c), d2=Math.abs(t[1]-c);
+        if(d1>=1&&d2>=1) rv+=1; else if(d1<1&&d2<1) rv+=Math.abs(c-(t[0]+t[1])/2); });
+      rough[i]=Math.min(2,rv);}}
+  var rr=Math.max(2,Math.round(0.45/px)), rs=boxMean(rough,w,h,rr), mf=new Float32Array(w*h); for(i=0;i<w*h;i++) mf[i]=m[i]; var mc=boxMean(mf,w,h,rr), rm=new Float32Array(w*h); for(i=0;i<w*h;i++) rm[i]=mc[i]>0?rs[i]/mc[i]:0; var out=new Uint8Array(w*h), drop=0, keep=0;
+  for(y=0;y<h;y++)for(x=0;x<w;x++){i=y*w+x; if(!m[i]) continue; var v2=dsm[i], hg=ok(v2)?v2-gnd[((y/B)|0)*bw+((x/B)|0)]:9;
+    if(hg>1.8&&rm[i]<0.22){out[i]=1;keep++;} else drop++;}
+  return keep>200?{m:out,dropped:drop}:{m:m,dropped:0};}
+function domAngle(segs,loopM){ // building direction (radians, CCW from east, mod 90°)
+  var sx=0,sy=0; (segs||[]).forEach(function(s){var a=s.azimuthDegrees, wgt=(s.stats&&s.stats.areaMeters2)||1; if(typeof a!=='number'||(s.pitchDegrees||0)<4) return; var t=(90-a)*Math.PI/180*4; sx+=wgt*Math.cos(t); sy+=wgt*Math.sin(t);});
+  if(Math.hypot(sx,sy)<1e-6){ for(var i=0;i<loopM.length;i++){var p=loopM[i],q=loopM[(i+1)%loopM.length],dx=q[0]-p[0],dy=q[1]-p[1],l=Math.hypot(dx,dy); if(!l) continue; var t2=Math.atan2(dy,dx)*4; sx+=l*Math.cos(t2); sy+=l*Math.sin(t2);} }
+  return Math.atan2(sy,sx)/4;}
+function squareUp(pts,phi,minEdge){ // pts in metres (east,north). Snap edges near the house axes, merge, drop short jogs.
+  var c=Math.cos(-phi), s=Math.sin(-phi), R=pts.map(function(p){return [p[0]*c-p[1]*s, p[0]*s+p[1]*c];}), n=R.length, TOL=Math.tan(15*Math.PI/180), Ls=[], i;
+  for(i=0;i<n;i++){var a=R[i],b=R[(i+1)%n],dx=b[0]-a[0],dy=b[1]-a[1],len=Math.hypot(dx,dy); if(len<1e-6) continue;
+    if(Math.abs(dy)<=Math.abs(dx)*TOL) Ls.push({k:'h',c:(a[1]+b[1])/2,len:len,a:a,b:b});
+    else if(Math.abs(dx)<=Math.abs(dy)*TOL) Ls.push({k:'v',c:(a[0]+b[0])/2,len:len,a:a,b:b});
+    else Ls.push({k:'d',len:len,a:a,b:b});}
+  function merge(A,B){var t=A.len+B.len; return {k:A.k,c:(A.c*A.len+B.c*B.len)/t,len:t,a:A.a,b:B.b};}
+  function X(A,B){ // intersection of two lines
+    if(A.k==='h'&&B.k==='v') return [B.c,A.c]; if(A.k==='v'&&B.k==='h') return [A.c,B.c];
+    var p=A.k==='h'?[0,A.c]:A.k==='v'?[A.c,0]:A.a, d=A.k==='h'?[1,0]:A.k==='v'?[0,1]:[A.b[0]-A.a[0],A.b[1]-A.a[1]];
+    var q=B.k==='h'?[0,B.c]:B.k==='v'?[B.c,0]:B.a, e=B.k==='h'?[1,0]:B.k==='v'?[0,1]:[B.b[0]-B.a[0],B.b[1]-B.a[1]];
+    var den=d[0]*e[1]-d[1]*e[0]; if(Math.abs(den)<1e-9) return [(A.b[0]+B.a[0])/2,(A.b[1]+B.a[1])/2]; var t=((q[0]-p[0])*e[1]-(q[1]-p[1])*e[0])/den; return [p[0]+t*d[0],p[1]+t*d[1]];}
+  for(i=Ls.length-1;i>=0&&Ls.length>4;i--){var P0=Ls[(i-1+Ls.length)%Ls.length],N0=Ls[(i+1)%Ls.length]; if(Ls[i].k==='d'&&Ls[i].len<2.0&&P0.k!=='d'&&N0.k!=='d') Ls.splice(i,1);}
+  for(var guard=0;guard<500;guard++){ var ch=false;
+    for(i=0;i<Ls.length&&Ls.length>3;i++){var A=Ls[i],B=Ls[(i+1)%Ls.length];
+      if(A.k!=='d'&&A.k===B.k){ if(Math.abs(A.c-B.c)<0.5){ Ls.splice(i,1,merge(A,B)); Ls.splice((i+1)%(Ls.length),1); ch=true; break; }
+        Ls.splice(i+1,0,{k:A.k==='h'?'v':'h',c:A.k==='h'?(A.b[0]+B.a[0])/2:(A.b[1]+B.a[1])/2,len:Math.abs(A.c-B.c),a:A.b,b:B.a}); ch=true; break; }}
+    if(ch) continue;
+    var V=Ls.map(function(L0,j){return X(Ls[(j-1+Ls.length)%Ls.length],L0);}), si=-1, sl=minEdge;
+    for(i=0;i<Ls.length;i++){var l=Math.hypot(V[(i+1)%Ls.length][0]-V[i][0],V[(i+1)%Ls.length][1]-V[i][1]); if(l<sl){sl=l;si=i;}}
+    if(si<0||Ls.length<=4) break; Ls.splice(si,1); }
+  var out=Ls.map(function(L0,j){return X(Ls[(j-1+Ls.length)%Ls.length],L0);});
+  c=Math.cos(phi); s=Math.sin(phi); return out.map(function(p){return [p[0]*c-p[1]*s, p[0]*s+p[1]*c];});}
+function polyAreaM(P){var a=0; for(var i=0;i<P.length;i++){var p=P[i],q=P[(i+1)%P.length]; a+=p[0]*q[1]-q[0]*p[1];} return Math.abs(a/2);}
+function readTif(url){ return fetch(url+(url.indexOf('?')<0?'?':'&')+'key='+encodeURIComponent(GKEY)).then(function(x){ if(!x.ok) throw new Error('layer '+x.status); return x.arrayBuffer(); })
+  .then(function(buf){return window.GeoTIFF.fromArrayBuffer(buf);}).then(function(t){return t.getImage();}).then(function(img){ return img.readRasters({samples:[0]}).then(function(r){return {img:img,band:r[0]};}); }); }
+function traceRoof(center,bb,segs){ var note=root.querySelector('.ms-note2'); note.textContent='Tracing the roof outline from Google…';
   var r=20; if(bb){var dlat=(bb.ne.latitude-bb.sw.latitude)*111320, dlng=(bb.ne.longitude-bb.sw.longitude)*111320*Math.cos(center.latitude*Math.PI/180); r=Math.hypot(dlat,dlng)/2+4;}
   r=Math.max(12,Math.min(60,Math.ceil(r)));
   var dl='https://solar.googleapis.com/v1/dataLayers:get?location.latitude='+center.latitude+'&location.longitude='+center.longitude+'&radiusMeters='+r+'&view=IMAGERY_LAYERS&requiredQuality=MEDIUM&pixelSizeMeters=0.1&key='+encodeURIComponent(GKEY);
   Promise.all([loadGT(), fetch(dl).then(function(x){ if(!x.ok) throw new Error('layers '+x.status); return x.json(); })])
-  .then(function(rs){ var d=rs[1]; if(!d.maskUrl) throw new Error('no mask'); var u=d.maskUrl+(d.maskUrl.indexOf('?')<0?'?':'&')+'key='+encodeURIComponent(GKEY);
-     return fetch(u).then(function(x){ if(!x.ok) throw new Error('mask '+x.status); return x.arrayBuffer(); }).then(function(buf){return rs[0].fromArrayBuffer(buf);}).then(function(t){return t.getImage();}); })
-  .then(function(img){ return img.readRasters({samples:[0]}).then(function(ras){ return {img:img,band:ras[0]}; }); })
-  .then(function(o){ var img=o.img,w=img.getWidth(),h=img.getHeight(),gk=img.getGeoKeys()||{}, fd=img.fileDirectory||{};
+  .then(function(rs){ var d=rs[1]; if(!d.maskUrl) throw new Error('no mask');
+     return Promise.all([readTif(d.maskUrl), d.dsmUrl?readTif(d.dsmUrl).catch(function(e){ if(window.__msDebug) console.log('DSMERR',e&&e.message); return null;}):Promise.resolve(null)]); })
+  .then(function(two){ var o=two[0], dsm=two[1], img=o.img,w=img.getWidth(),h=img.getHeight(),gk=img.getGeoKeys()||{}, fd=img.fileDirectory||{};
      // pixel -> projected coords, read straight from the tags (geotiff.js flips Y for ModelTransformation files)
      var px2xy, mt=fd.ModelTransformation, tp=fd.ModelTiepoint, sc=fd.ModelPixelScale;
      if(mt&&mt.length>=8) px2xy=function(c,r){return [mt[3]+c*mt[0]+r*mt[1], mt[7]+c*mt[4]+r*mt[5]];};
      else if(tp&&sc) px2xy=function(c,r){return [tp[3]+(c-tp[0])*sc[0], tp[4]-(r-tp[1])*sc[1]];};
      else throw new Error('no georeference');
-     var res=[Math.hypot(px2xy(1,0)[0]-px2xy(0,0)[0],px2xy(1,0)[1]-px2xy(0,0)[1])];
+     var px=Math.hypot(px2xy(1,0)[0]-px2xy(0,0)[0],px2xy(1,0)[1]-px2xy(0,0)[1])||0.1;
      var code=gk.ProjectedCSTypeGeoKey||0, toLL;
      if(code>=32601&&code<=32660) toLL=function(E,N){return utmToLL(E,N,code-32600,false);};
      else if(code>=32701&&code<=32760) toLL=function(E,N){return utmToLL(E,N,code-32700,true);};
      else if(!code&&(gk.GeographicTypeGeoKey===4326||!gk.GTModelTypeGeoKey||gk.GTModelTypeGeoKey===2)) toLL=function(E,N){return L.latLng(N,E);};
      else throw new Error('projection '+code);
      var m=new Uint8Array(w*h),i; for(i=0;i<w*h;i++) m[i]=o.band[i]>0?1:0;
-     var px=Math.abs(res[0])||0.1, gap=Math.max(1,Math.round(0.3/px)); // bridge small gaps (shadows, chimneys)
+     var hf={dropped:0};
+     if(dsm&&dsm.img.getWidth()===w&&dsm.img.getHeight()===h){ hf=heightFilter(m,dsm.band,w,h,px); m=hf.m; }
+     if(window.__msDebug) console.log('DSM',!!dsm,dsm&&dsm.img.getWidth(),w,'dropped',hf.dropped);
+     var gap=Math.max(1,Math.round(0.3/px)), op=Math.max(1,Math.round(0.4/px));
      var g=grow(m,w,h,gap), seed=nearestOn(g,w,h,w>>1,h>>1,Math.round(6/px)); if(!seed) throw new Error('no-roof');
      var comp=fillHoles(shrink(flood(g,w,h,seed[0],seed[1]),w,h,gap),w,h);
-     var s2=nearestOn(comp,w,h,seed[0],seed[1],Math.round(2/px)); if(s2) comp=fillHoles(flood(comp,w,h,s2[0],s2[1]),w,h);
+     comp=grow(shrink(comp,w,h,op),w,h,op); // drop thin spurs (fences, wires, gutters of neighbours)
+     var s2=nearestOn(comp,w,h,seed[0],seed[1],Math.round(3/px)); if(!s2) throw new Error('no-roof'); comp=fillHoles(flood(comp,w,h,s2[0],s2[1]),w,h);
      var loop=outline(comp,w,h); if(loop.length<8) throw new Error('no-roof');
-     var eps=0.35/px, poly=simplifyLoop(loop,eps); while(poly.length>36){eps*=1.3; poly=simplifyLoop(loop,eps);}
-     if(poly.length<3) throw new Error('no-roof');
-     var lls=poly.map(function(p){var q=px2xy(p[0],p[1]); return toLL(q[0],q[1]);});
+     var poly=simplifyLoop(loop,0.3/px); if(poly.length<3) throw new Error('no-roof');
+     var x0=px2xy(0,0); var M=poly.map(function(p){var q=px2xy(p[0],p[1]); return [q[0]-x0[0],q[1]-x0[1]];});
+     var phi=domAngle(segs,M), sq=squareUp(M,phi,0.6), a0=polyAreaM(M), a1=polyAreaM(sq), useSq=sq.length>=4&&Math.abs(a1-a0)/a0<0.12;
+     var fin=useSq?sq:M;
+     var lls=fin.map(function(q){return toLL(q[0]+x0[0],q[1]+x0[1]);});
      addPoly(lls); map.fitBounds(polys[polys.length-1].layer.getBounds(),{padding:[60,60],animate:false}); calc();
-     note.textContent='Roof outline traced from Google ('+poly.length+' corners). Check it against the image, use Edit points to fix any corner, and Mark rakes on gable edges. Squares and pitch come from Google.'; })
+     note.textContent='Roof outline traced from Google ('+fin.length+' corners'+(useSq?', squared to the house':'')+(hf.dropped?', trees and low areas removed':'')+'). Check it against the image, use Edit points to fix any corner, and Mark rakes on gable edges.'; })
   .catch(function(err){ var msg=String(err&&err.message||err);
      if(bb){ addPoly([L.latLng(bb.ne.latitude,bb.sw.longitude),L.latLng(bb.sw.latitude,bb.sw.longitude),L.latLng(bb.sw.latitude,bb.ne.longitude),L.latLng(bb.ne.latitude,bb.ne.longitude)]); map.fitBounds(polys[polys.length-1].layer.getBounds(),{padding:[60,60],animate:false}); calc(); }
-     note.textContent=(msg==='reader'?'Could not load the outline reader (check the internet connection).':msg==='no-roof'?'Google could not find a clear roof outline here.':'Google outline unavailable ('+msg+').')+' A box was drawn around the building instead. Trace the roof with the pencil, or adjust the box with Edit points. Squares and pitch still come from Google.'; });}
+     note.textContent=(msg==='reader'?'Could not load the outline reader (check the internet connection).':msg==='no-roof'?'Google could not find a clear roof outline here.':'Google outline unavailable ('+msg+').')+' A box was drawn around the building instead. Trace the roof with the pencil, or adjust the box with Edit points.'; });}
 guse.addEventListener('click',function(){useG=!useG; guse.setAttribute('aria-pressed',useG?'true':'false'); guse.textContent=useG?'Using Google slopes':'Use Google slopes'; calc();});
 // ---------- snapping (done in screen pixels) ----------
 function P(ll){return map.latLngToContainerPoint(ll);} function LL(pt){return map.containerPointToLatLng(pt);}
