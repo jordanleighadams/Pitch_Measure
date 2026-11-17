@@ -3526,15 +3526,16 @@ function fpStats(lls){ var o=lls[0], k=Math.cos(o.lat*Math.PI/180), xy=lls.map(f
     var cr=(ax*by-ay*bx)/(la*lb), turn=Math.asin(Math.max(-1,Math.min(1,cr)))*180/Math.PI; if(sgn*turn>25) corners++; }
   return {perimFt:per*3.28084, areaSqft:Math.abs(area)/2*10.7639, corners:corners}; }
 function gFootprint(c){ var el=root.querySelector('.ms-gfp'); FP=null; if(fpLayer&&map){map.removeLayer(fpLayer);fpLayer=null;} if(!el) return; el.textContent='Checking the building footprint…';
-  var base='https://maps.googleapis.com/maps/api/geocode/json?extra_computations=BUILDING_AND_ENTRANCES&key='+encodeURIComponent(GKEY);
-  function get(q){ return fetch(base+q).then(function(r){ if(!r.ok) throw new Error('Geocoding error '+r.status); return r.json(); }).then(function(d){
-      if(d.status&&d.status!=='OK'&&d.status!=='ZERO_RESULTS') throw new Error('Geocoding: '+d.status+(d.error_message?' ('+d.error_message+')':''));
-      var bs=(d.buildings||[]).slice(); (d.results||[]).forEach(function(r){ (r.buildings||[]).forEach(function(b){bs.push(b);}); }); return bs; }); }
-  var first=(choice&&choice.placeId)?get('&place_id='+encodeURIComponent(choice.placeId)):Promise.resolve([]);
-  first.then(function(bs){ return bs.length?bs:get('&latlng='+c.lat+','+c.lng); })
+  function polysIn(o,out){ if(!o||typeof o!=='object') return out; if(Array.isArray(o)){o.forEach(function(x){polysIn(x,out);}); return out;}
+    if(o.displayPolygon&&(!o.structureType||o.structureType==='BUILDING')) out.push(o.displayPolygon);
+    Object.keys(o).forEach(function(k){ if(k!=='displayPolygon') polysIn(o[k],out); }); return out; }
+  function get(body){ return fetch('https://geocode.googleapis.com/v4/geocode/destinations',{method:'POST',headers:{'Content-Type':'application/json','X-Goog-Api-Key':GKEY,'X-Goog-FieldMask':'*'},body:JSON.stringify(body)})
+     .then(function(r){ return r.json().catch(function(){return {};}).then(function(d){ if(!r.ok) throw new Error('Geocoding error '+r.status+(d.error&&d.error.message?' ('+d.error.message+')':'')); return polysIn(d.destinations||[],[]); }); }); }
+  var first=(choice&&choice.placeId)?get({place:'places/'+choice.placeId}):Promise.resolve([]);
+  first.then(function(ps){ return ps.length?ps:get({locationQuery:{location:{latitude:c.lat,longitude:c.lng}}}); })
    .then(function(bs){ var pin=L.latLng(c.lat,c.lng), pick=null, pd=1e9;
-      bs.forEach(function(b){ (b.building_outlines||[]).forEach(function(o){ var r=fpRing(o.display_polygon); if(!r) return; var lls=r.slice(0,-1).map(function(p){return L.latLng(p[1],p[0]);});
-        var d=L.polygon(lls).getBounds().contains(pin)?0:pin.distanceTo(L.polygon(lls).getBounds().getCenter()); if(d<pd){pd=d;pick=lls;} }); });
+      bs.forEach(function(dp){ var r=fpRing(dp); if(!r) return; var lls=r.slice(0,-1).map(function(p){return L.latLng(p[1],p[0]);});
+        var d=L.polygon(lls).getBounds().contains(pin)?0:pin.distanceTo(L.polygon(lls).getBounds().getCenter()); if(d<pd){pd=d;pick=lls;} });
       if(!pick){ el.textContent='Google has no building footprint for this address.'; return; }
       FP=fpStats(pick); FP.lls=pick;
       fpLayer=L.polygon(pick,{color:'#2F80ED',weight:2,dashArray:'6 5',fill:false,interactive:false}).addTo(map);
